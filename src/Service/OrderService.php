@@ -81,6 +81,7 @@ class OrderService
      */
     public function getOrderLinesArray(OrderEntity $order)
     {
+
         // Variables
         $lines = [];
         $lineItems = $order->getLineItems();
@@ -106,8 +107,19 @@ class OrderService
             $vatRate = $itemTax !== null ? $itemTax->getTaxRate() : 0.0;
             $vatAmount = $itemTax !== null ? $itemTax->getTax() : null;
 
+            // get vat amount per item, because molly expects that the items price has vat
+            $vatItemAmount = $vatAmount / $item->getQuantity();
+
             if ($vatAmount === null && $vatRate > 0) {
                 $vatAmount = $item->getTotalPrice() * ($vatRate / ($vatRate + 100));
+            }
+
+            if ($order->getTaxStatus() == 'net') {
+                $xtraVat1  = $vatItemAmount;
+                $xtraVat2  = $vatAmount;
+            } else {
+                $xtraVat1  = 0;
+                $xtraVat2  = 0;
             }
 
             // Build the order lines array
@@ -115,8 +127,8 @@ class OrderService
                 'type' =>  $this->getLineItemType($item),
                 'name' => $item->getLabel(),
                 'quantity' => $item->getQuantity(),
-                'unitPrice' => $this->getPriceArray($currencyCode, $item->getUnitPrice()),
-                'totalAmount' => $this->getPriceArray($currencyCode, $item->getTotalPrice()),
+                'unitPrice' => $this->getPriceArray($currencyCode, $item->getUnitPrice() + $xtraVat1),
+                'totalAmount' => $this->getPriceArray($currencyCode, $item->getTotalPrice() + $xtraVat2),
                 'vatRate' => number_format($vatRate, 2, '.', ''),
                 'vatAmount' => $this->getPriceArray($currencyCode, $vatAmount),
                 'sku' => null,
@@ -161,17 +173,32 @@ class OrderService
         $vatRate = $shippingTax !== null ? $shippingTax->getTaxRate() : 0.0;
         $vatAmount = $vatAmount = $shippingTax !== null ? $shippingTax->getTax() : null;
 
+
+
         if ($vatAmount === null && $vatRate > 0) {
             $vatAmount = $shipping->getTotalPrice() * ($vatRate / ($vatRate + 100));
         }
+
+        // get vat amount per item, because molly expects that the items price has vat
+        $vatItemAmount = $vatAmount / $shipping->getQuantity();
+
+        if ($order->getTaxStatus() == 'net') {
+            $xtraVat1  = $vatItemAmount;
+            $xtraVat2  = $vatAmount;
+
+        } else {
+            $xtraVat1  = 0;
+            $xtraVat2  = 0;
+        }
+
 
         // Build the order line array
         $line = [
             'type' =>  OrderLineType::TYPE_SHIPPING_FEE,
             'name' => 'Shipping',
             'quantity' => $shipping->getQuantity(),
-            'unitPrice' => $this->getPriceArray($currencyCode, $shipping->getUnitPrice()),
-            'totalAmount' => $this->getPriceArray($currencyCode, $shipping->getTotalPrice()),
+            'unitPrice' => $this->getPriceArray($currencyCode, $shipping->getUnitPrice() + $xtraVat1),
+            'totalAmount' => $this->getPriceArray($currencyCode, $shipping->getTotalPrice() + $xtraVat2),
             'vatRate' => number_format($vatRate, 2, '.', ''),
             'vatAmount' => $this->getPriceArray($currencyCode, $vatAmount),
             'sku' => null,
@@ -185,16 +212,12 @@ class OrderService
     /**
      * Return an array of price data; currency and value.
      * @param string $currency
-     * @param float|null $price
+     * @param float $price
      * @param int $decimals
      * @return array
      */
     public function getPriceArray(string $currency, float $price, int $decimals = 2) : array
     {
-        if ($price === null) {
-            $price = 0.0;
-        }
-
         return [
             'currency' => $currency,
             'value' => number_format($price, $decimals, '.', '')
